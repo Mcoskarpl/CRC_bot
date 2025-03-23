@@ -5,13 +5,19 @@ from openpyxl import Workbook, load_workbook
 from dotenv import load_dotenv
 import requests
 from discord import Option, Attachment
+import math
+from io import BytesIO
+import json
 
 # Wczytanie tokenu z pliku .env
 load_dotenv("Token.env")
 TOKEN = os.getenv('DISCORD_TOKEN')
 YOUR_USER_ID = 311552371970932736
 YOUR_CHANNEL_ID = 1351202255499563049  # Zastąp prawdziwym ID kanału
-IMGUR_CLIENT_ID = "your_imgur_client_id"
+IMGUR_CLIENT_ID = "9f769a6c43f8956"
+IMGUR_UPLOAD_URL = "https://api.imgur.com/3/upload"
+SUBMISSIONS_FILE = "submissions.json"
+
 # Globalna wartość wersji
 global_version = "47.3"  # Domyślna wartość
 
@@ -104,7 +110,7 @@ towers = {
     "glue#400": 5000,
     "glue#500": 22500,
     "glue#010": 100,
-    "glue#020": 970,
+    "glue#020": 970, 
     "glue#030": 1950,
     "glue#040": 4000,
     "glue#050": 16000,
@@ -983,16 +989,13 @@ def calculate_hero_cost(hero_name, level):
     Tylko koszt bazowy herosa jest mnożony przez 1.08 i zaokrąglany do najbliższej 5.
     Koszt poziomów jest mnożony przez levelModifier i zaokrąglany do 1.
     """
-    print(f"Obliczanie kosztu dla herosa: {hero_name}-{level}")  # Debugowanie
     
     # Normalizacja nazwy herosa na podstawie aliasów
     hero_name = hero_name.lower()  # Zamień na małe litery
     hero_name = aliases.get(hero_name, hero_name)  # Zamień alias na podstawową nazwę
 
-    print(f"Znormalizowana nazwa herosa: {hero_name}")  # Debugowanie
 
     if hero_name not in heroes:  # Upewnij się, że nazwa jest małymi literami
-        print(f"Heros {hero_name} nie istnieje w słowniku heroes.")  # Debugowanie
         return 0  # Jeśli heros nie istnieje, zwróć 0
 
     hero_data = heroes[hero_name]  # Użyj znormalizowanej nazwy
@@ -1011,7 +1014,7 @@ def calculate_hero_cost(hero_name, level):
     # Całkowity koszt to zmodyfikowany koszt bazowy + koszt poziomów
     total_cost = modified_base_cost + total_level_cost
 
-    print(f"Koszt herosa {hero_name}-{level}: {total_cost}")  # Debugowanie
+    
     return total_cost
 
 
@@ -1073,9 +1076,10 @@ def update_excel(ws, map_name, round_number, price, used_towers, person, version
             total_price += calculate_hero_cost(hero_name, level)  # Dodaj koszt herosa
         else:
             # Przetwarzaj wieżę
-            parsed_towers, tower_price = parse_tower(tower)
-            if parsed_towers:
-                total_price += tower_price
+            parsed_towers, tower_price, error_message = parse_tower(tower)  # Rozpakowanie trzech wartości
+            if parsed_towers is None:
+                continue  # Pomijaj nieprawidłowe wieże
+            total_price += tower_price
 
     # Zaktualizuj komórkę
     cell_value = f"Price: {price}\nTowers: {used_towers}\nPerson: {person}\nVersion: {version}\nLink: {link}\nToday's Price: {total_price}"
@@ -1129,28 +1133,30 @@ async def todo(ctx: discord.ApplicationContext):
 def parse_tower(tower):
     """
     Przetwarza wieżę w formacie np. dart#000.
-    Zwraca listę podstawowych wież oraz ich łączną cenę.
+    Zwraca listę podstawowych wież, łączną cenę oraz komunikat o błędzie (jeśli wystąpił).
+    Jeśli wieża nie istnieje w słowniku, zwraca None, 0 i komunikat o błędzie.
     """
     # Normalizacja nazwy wieży
     tower = normalize_tower_name(tower)
 
     # Sprawdź, czy wieża ma poprawny format (3 cyfry po #)
     if not "#" in tower or len(tower.split("#")[1]) != 3:
-        print(f"Nieprawidłowy format wieży: {tower}")  # Debugowanie
-        return None, 0  # Nieprawidłowy format wieży
+        return None, 0, f"Invalid tower format: {tower}. Each tower must have 3 digits after '#'."  # Nieprawidłowy format wieży
 
     base_name = tower.split("#")[0]  # Nazwa wieży (np. "dart")
     digits = tower.split("#")[1]     # Cyfry (np. "000")
 
     # Sprawdź, czy przynajmniej jedna cyfra to 0
     if "0" not in digits:
-        print(f"Brak cyfry 0 w wieży: {tower}")  # Debugowanie
-        return None, 0
+        return None, 0, f"Invalid tower format: {tower}. Each tower must have at least one '0'."
 
     # Sprawdź, czy nie ma dwóch cyfr 3 lub wyższych
     if sum(1 for d in digits if int(d) >= 3) > 1:
-        print(f"Więcej niż jedna cyfra >= 3 w wieży: {tower}")  # Debugowanie
-        return None, 0
+        return None, 0, f"Invalid tower format: {tower}. No more than one digit >= 3 is allowed."
+
+    # Sprawdź, czy wieża istnieje w słowniku
+    if tower not in towers:
+        return None, 0, f"Tower not found in dictionary: {tower}."
 
     # Przeliczanie wieży
     basic_towers = []
@@ -1181,6 +1187,10 @@ def parse_tower(tower):
             elif i == 2:  # Trzecia cyfra (setki)
                 basic_tower = f"{base_name}#00{j:01d}"
 
+            # Sprawdź, czy wieża istnieje w słowniku
+            if basic_tower not in towers:
+                return None, 0, f"Tower not found in dictionary: {basic_tower}."
+
             # Pobierz cenę podstawowej wieży
             tower_price = towers.get(basic_tower, 0)
 
@@ -1193,9 +1203,7 @@ def parse_tower(tower):
             # Dodaj wieżę do listy podstawowych wieży
             basic_towers.append(basic_tower)
 
-    print(f"Przetworzona wieża {tower} na: {basic_towers}")  # Debugowanie
-    print(f"Łączna cena przeliczonych wież: {total_price}")  # Debugowanie
-    return basic_towers, total_price
+    return basic_towers, total_price, None  # Zwróć listę wież, łączną cenę i brak błędu
 
 
 def parse_hero(hero):
@@ -1211,35 +1219,28 @@ def parse_hero(hero):
         hero_name = hero_name.lower()  # Zamień na małe litery
         hero_name = aliases.get(hero_name, hero_name)  # Zamień alias na podstawową nazwę
 
-        print(f"Przetwarzanie herosa: {hero_name}-{level}")  # Debugowanie
-        print(f"Znormalizowana nazwa herosa: {hero_name}")  # Debugowanie
 
         # Sprawdź, czy heros istnieje w słowniku heroes
         if hero_name not in heroes:
-            print(f"Heros {hero_name} nie istnieje w słowniku heroes.")  # Debugowanie
             return None, 0
         
         # Oblicz koszt herosa
         hero_cost = calculate_hero_cost(hero_name, level)
-        print(f"Koszt herosa {hero_name}-{level}: {hero_cost}")  # Debugowanie
 
         return None, hero_cost  # Zwróć koszt herosa
     except (ValueError, KeyError) as e:
-        print(f"Nieprawidłowy format herosa: {hero}. Błąd: {e}")  # Debugowanie
         return None, 0
-
 
 def parse_tower_only(tower):
     """
     Przetwarza wieżę w formacie np. dart#000*3.
-    Zwraca listę podstawowych wież oraz ich łączną cenę.
+    Zwraca listę podstawowych wież, ich łączną cenę oraz komunikat o błędzie (jeśli wystąpił).
     """
     # Sprawdź, czy wieża zawiera mnożenie
     if "*" in tower:
         # Podziel na części: tower_name, digits, multiplier
         if tower.count("*") != 1:
-            print(f"Nieprawidłowy format wieży (zbyt wiele znaków '*'): {tower}")  # Debugowanie
-            return None, 0
+            return None, 0, "Invalid tower format: '*' can only appear once."
 
         # Podziel na część przed * i po *
         parts = tower.split("*")
@@ -1247,8 +1248,7 @@ def parse_tower_only(tower):
             multiplier = int(parts[1])  # Mnożnik jest po *
             tower_part = parts[0]  # Część z wieżą (np. dart#000)
         else:
-            print(f"Nieprawidłowy format wieży (brak mnożnika): {tower}")  # Debugowanie
-            return None, 0
+            return None, 0, "Invalid multiplier: must be a number."
     else:
         tower_part = tower
         multiplier = 1
@@ -1258,21 +1258,22 @@ def parse_tower_only(tower):
 
     # Sprawdź, czy wieża ma poprawny format (3 cyfry po #)
     if not "#" in tower_part or len(tower_part.split("#")[1]) != 3:
-        print(f"Nieprawidłowy format wieży: {tower_part}")  # Debugowanie
-        return None, 0  # Nieprawidłowy format wieży
+        return None, 0, "Invalid tower format: each tower must have 3 digits after '#'."
 
     base_name = tower_part.split("#")[0]  # Nazwa wieży (np. "dart")
     digits = tower_part.split("#")[1]     # Cyfry (np. "000")
 
     # Sprawdź, czy przynajmniej jedna cyfra to 0
     if "0" not in digits:
-        print(f"Brak cyfry 0 w wieży: {tower_part}")  # Debugowanie
-        return None, 0
+        return None, 0, "Invalid tower format: each tower must have at least one '0'."
 
     # Sprawdź, czy nie ma dwóch cyfr 3 lub wyższych
     if sum(1 for d in digits if int(d) >= 3) > 1:
-        print(f"Więcej niż jedna cyfra >= 3 w wieży: {tower_part}")  # Debugowanie
-        return None, 0
+        return None, 0, "Invalid tower format: no more than one digit >= 3 is allowed."
+
+    # Sprawdź, czy wieża istnieje w słowniku
+    if tower_part not in towers:
+        return None, 0, f"Tower not found in dictionary: {tower_part}."
 
     # Przeliczanie wieży
     basic_towers = []
@@ -1282,11 +1283,11 @@ def parse_tower_only(tower):
     basic_tower = f"{base_name}#000"
     tower_price = towers.get(basic_tower, 0)
 
-    # Zaokrąglij cenę pojedynczej wieży do najbliższej 5
-    rounded_price = round(tower_price * 1.08 / 5) * 5
+    # Modyfikacja ceny: mnożenie przez 1.08, floor, zaokrąglenie do 5
+    modified_price = round(math.floor(tower_price * 1.08) / 5) * 5
 
     # Pomnóż zaokrągloną cenę przez mnożnik
-    total_price += rounded_price * multiplier
+    total_price += modified_price * multiplier
 
     # Dodaj wieżę do listy podstawowych wieży
     basic_towers.extend([basic_tower] * multiplier)
@@ -1303,21 +1304,23 @@ def parse_tower_only(tower):
             elif i == 2:  # Trzecia cyfra (setki)
                 basic_tower = f"{base_name}#00{j:01d}"
 
+            # Sprawdź, czy wieża istnieje w słowniku
+            if basic_tower not in towers:
+                return None, 0, f"Tower not found in dictionary: {basic_tower}."
+
             # Pobierz cenę podstawowej wieży
             tower_price = towers.get(basic_tower, 0)
 
-            # Zaokrąglij cenę pojedynczej wieży do najbliższej 5
-            rounded_price = round(tower_price * 1.08 / 5) * 5
+            # Modyfikacja ceny: mnożenie przez 1.08, floor, zaokrąglenie do 5
+            modified_price = round(math.floor(tower_price * 1.08) / 5) * 5
 
             # Pomnóż zaokrągloną cenę przez mnożnik
-            total_price += rounded_price * multiplier
+            total_price += modified_price * multiplier
 
             # Dodaj wieżę do listy podstawowych wieży
             basic_towers.extend([basic_tower] * multiplier)
 
-    print(f"Przetworzona wieża {tower} na: {basic_towers}")  # Debugowanie
-    print(f"Łączna cena przeliczonych wież: {total_price}")  # Debugowanie
-    return basic_towers, total_price
+    return basic_towers, total_price, None  # Brak błędu
 
 @bot.slash_command(name="crc", description="Display CRC which you want")
 async def CRC(
@@ -1486,7 +1489,6 @@ def parse_hero(hero):
         level = int(level)
         return None, calculate_hero_cost(hero_name, level)  # Zwróć koszt herosa
     except (ValueError, KeyError):
-        print(f"Nieprawidłowy format herosa: {hero}")  # Debugowanie
         return None, 0
 
 
@@ -1522,15 +1524,12 @@ def get_today_price(ws, map_name, round_number):
 # Modyfikacja logiki wysyłania wiadomości
 async def send_submission_to_channel(channel, round, map, price, used_towers, link, person, version):
     """
-    Wysyła zgłoszenie do określonego kanału i dodaje reakcje do wiadomości.
+    Wysyła zgłoszenie do określonego kanału.
     """
     # Normalizacja nazwy mapy
     normalized_map = normalize_map_name(map)
     if not normalized_map:
-        print(f"Nieprawidłowa nazwa mapy: {map}")  # Debugowanie
         return
-
-    print(f"Znormalizowana nazwa mapy: {normalized_map}")  # Debugowanie
 
     # Rozdziel wieże i herosy
     tower_list = used_towers.split("+")
@@ -1572,9 +1571,10 @@ async def send_submission_to_channel(channel, round, map, price, used_towers, li
     await embed_message.add_reaction("❌")  # Emotka odrzucenia
 
     # Przechowanie zgłoszenia w słowniku
-    bot.active_submissions[embed_message.id] = {
-        "embed_message": embed_message,
-        "link_message": link_message,
+    submission_data = {
+        "embed_message_id": embed_message.id,  # Tylko ID wiadomości
+        "link_message_id": link_message.id,    # Tylko ID wiadomości
+        "channel_id": submission_channel.id,   # ID kanału
         "original_user": person,  # Przechowujemy nazwę użytkownika, który wysłał zgłoszenie
         "map": normalized_map,
         "round": round,
@@ -1583,20 +1583,29 @@ async def send_submission_to_channel(channel, round, map, price, used_towers, li
         "version": version,
         "link": link
     }
+    bot.active_submissions[embed_message.id] = submission_data
 
 # Modyfikacja komendy /submit
 @bot.slash_command(name="submit", description="Add new CRC")
 async def Submit(
     ctx: discord.ApplicationContext,
     round: discord.Option(int, description="Round (1-140)"),
-    map: discord.Option(str, description="Map's name (type manually)"),  # Użytkownik wpisuje nazwę mapy
+    map: discord.Option(str, description="Map's name (type manually)"),
     price: discord.Option(int, description="Price"),
     used_towers: discord.Option(str, description="Used Towers (only + works, no *)"),
     link: discord.Option(str, description="Link"),
     person: discord.Option(str, description="Person which did it"),
     version: discord.Option(str, description="Version", required=False)
 ):
-    # Sprawdź, czy used_towers zawiera znak *
+    # ID specyficznego serwera
+    SPECIFIC_SERVER_ID = 678672922910654487
+
+    # Sprawdź, czy komenda jest używana na odpowiednim serwerze
+    if ctx.guild.id != SPECIFIC_SERVER_ID:
+        await ctx.respond("This command is only available on a specific server. To join to server type /invite", ephemeral=True)
+        return
+
+    # Reszta logiki komendy
     if "*" in used_towers:
         embed = discord.Embed(
             title="Error",
@@ -1606,18 +1615,14 @@ async def Submit(
         await ctx.respond(embed=embed)
         return
 
-    # Normalizuj nazwę mapy
     normalized_map = normalize_map_name(map)
-
     if not normalized_map:
         await ctx.respond(f"Invalid map name. Please choose from: {', '.join(maps_with_aliases.keys())}", ephemeral=True)
         return
-    global global_version
 
-    # Użyj wersji podanej przez użytkownika, jeśli istnieje, w przeciwnym razie użyj globalnej wersji
+    global global_version
     submission_version = version if version else global_version
 
-    # Reszta logiki zgłoszenia
     if round < 1 or round > 140:
         embed = discord.Embed(
             title="Error",
@@ -1627,36 +1632,35 @@ async def Submit(
         await ctx.respond(embed=embed)
         return
 
-    # Przeliczenie wartości wież
     tower_list = used_towers.split("+")
     basic_towers = []
     total_price = 0
+    unrecognized_towers = []
 
     for tower in tower_list:
-        # Usuń spacje i zamień na małe litery
         tower = tower.replace(" ", "").lower()
-
-        # Sprawdź, czy to heros
         if "-" in tower:
-            # Przetwarzaj herosa
             hero_name, level = tower.split("-")
             level = int(level)
             hero_cost = calculate_hero_cost(hero_name, level)
             total_price += hero_cost
-            basic_towers.append(f"{hero_name}-{level}")  # Dodaj herosa do listy
+            basic_towers.append(f"{hero_name}-{level}")
         else:
-            # Przetwarzaj wieżę
-            parsed_towers, tower_price = parse_tower(tower)
+            parsed_towers, tower_price, error_message = parse_tower(tower)  # Rozpakowanie trzech wartości
             if parsed_towers is None:
-                embed = discord.Embed(
-                    title="Error",
-                    description=f"Invalid tower format: {tower}. Each tower must have at least one '0' and no more than one digit >= 3.",
-                    color=discord.Color.red()
-                )
-                await ctx.respond(embed=embed)
-                return
+                unrecognized_towers.append(f"{tower} ({error_message})")
+                continue
             basic_towers.extend(parsed_towers)
             total_price += tower_price
+
+    if unrecognized_towers:
+        embed = discord.Embed(
+            title="Error",
+            description=f"The following towers were not recognized:\n{', '.join(unrecognized_towers)}",
+            color=discord.Color.red()
+        )
+        await ctx.respond(embed=embed)
+        return
 
     if total_price != price:
         embed = discord.Embed(
@@ -1667,13 +1671,9 @@ async def Submit(
         await ctx.respond(embed=embed)
         return
 
-    # Wczytaj plik Excel
     wb, ws = load_excel()
-
-    # Pobierz "Today's Price" dla danej mapy i rundy
     today_price = get_today_price(ws, normalized_map, round)
 
-    # Sprawdź, czy cena zgłoszenia jest niższa niż "Today's Price"
     if today_price is not None and price >= today_price:
         embed = discord.Embed(
             title="Submission Rejected",
@@ -1683,10 +1683,8 @@ async def Submit(
         await ctx.respond(embed=embed)
         return
 
-    # Wysłanie zgłoszenia do innego kanału
     await send_submission_to_channel(ctx.channel, round, normalized_map, price, used_towers, link, person, submission_version)
 
-    # Potwierdzenie dla użytkownika
     confirm_embed = discord.Embed(
         title="Submission Sent",
         description="Your CRC submission has been sent for approval.",
@@ -1694,9 +1692,34 @@ async def Submit(
     )
     await ctx.respond(embed=confirm_embed)
     
+async def delete_submission_messages(submission):
+    """
+    Usuwa wiadomości związane z zgłoszeniem.
+    """
+    try:
+        # Pobierz kanał
+        channel = bot.get_channel(submission["channel_id"])
+        if not channel:
+            return
+
+        # Usuń wiadomość z embedem
+        if "embed_message_id" in submission:
+            embed_message = await channel.fetch_message(submission["embed_message_id"])
+            await embed_message.delete()
+
+        # Usuń wiadomość z linkiem
+        if "link_message_id" in submission:
+            link_message = await channel.fetch_message(submission["link_message_id"])
+            await link_message.delete()
+    except discord.NotFound:
+        None
+    except discord.Forbidden:
+        None
+    except Exception as e:
+        None
+
 
 # Obsługa reakcji
-@bot.event
 @bot.event
 async def on_reaction_add(reaction, user):
     """
@@ -1730,8 +1753,7 @@ async def on_reaction_add(reaction, user):
                 await reaction.message.channel.send(f"Submission from {person} was accepted by {user.name}.")
 
                 # Usunięcie wiadomości z kanału zgłoszeń
-                await submission["embed_message"].delete()
-                await submission["link_message"].delete()
+                await delete_submission_messages(submission)
 
                 # Usunięcie zgłoszenia ze słownika
                 del bot.active_submissions[reaction.message.id]
@@ -1742,19 +1764,22 @@ async def on_reaction_add(reaction, user):
                 await reaction.message.channel.send(f"Submission from {person} was rejected by {user.name}.")
 
                 # Usunięcie wiadomości z kanału zgłoszeń
-                await submission["embed_message"].delete()
-                await submission["link_message"].delete()
+                await delete_submission_messages(submission)
 
                 # Usunięcie zgłoszenia ze słownika
                 del bot.active_submissions[reaction.message.id]
 
 # Komenda /Change_Version
 @bot.slash_command(name="change_version", description="Setup version for CRC's (refreshes **Today's Price** based on used towers)")
-@commands.has_role("Admin")  # Tylko użytkownik z rolą Admin może użyć tej komendy
 async def Change_Version(
     ctx: discord.ApplicationContext,
     version: discord.Option(str, description="Towers calculated")
 ):
+    # Sprawdź, czy użytkownik to Oskar4087
+    if ctx.author.name != "oskar4807":
+        await ctx.respond("Only oskar4807 can use this command.", ephemeral=True)
+        return
+
     global global_version
     global_version = version  # Zaktualizuj globalną wersję
 
@@ -1797,11 +1822,84 @@ async def links(ctx: discord.ApplicationContext):
     # Wysłanie embeda
     await ctx.respond(embed=embed)
 
+def save_submissions(submissions):
+    """
+    Zapisuje zgłoszenia do pliku JSON.
+    """
+    with open(SUBMISSIONS_FILE, "w") as f:
+        json.dump(submissions, f, indent=4)
+
+def load_submissions():
+    """
+    Wczytuje zgłoszenia z pliku JSON.
+    Jeśli plik nie istnieje, zwraca pusty słownik.
+    """
+    if not os.path.exists(SUBMISSIONS_FILE):
+        return {}
+    with open(SUBMISSIONS_FILE, "r") as f:
+        return json.load(f)
 
 
 
+@bot.slash_command(name="imgur", description="Upload an image to Imgur and get a link")
+async def imgur(ctx, image: discord.Option(discord.Attachment, description="Image to upload")):
+    # Sprawdź, czy załącznik jest obrazem
+    if not image.content_type.startswith('image'):
+        await ctx.respond("Please upload a valid image file.", ephemeral=True)
+        return
+
+    # Pobierz obraz
+    image_data = await image.read()
+
+    # Przygotuj nagłówki dla Imgur API
+    headers = {
+        "Authorization": f"Client-ID {IMGUR_CLIENT_ID}"
+    }
+
+    # Przygotuj dane do wysłania
+    files = {
+        'image': BytesIO(image_data)
+    }
+
+    # Wyślij obraz do Imgur
+    response = requests.post(IMGUR_UPLOAD_URL, headers=headers, files=files)
+
+    # Sprawdź odpowiedź
+    if response.status_code == 200:
+        imgur_data = response.json()
+        imgur_link = imgur_data['data']['link']
+        await ctx.respond(f"Imgur link: {imgur_link}")
+    else:
+        await ctx.respond("Failed to upload image to Imgur.", ephemeral=True)
 
 
+
+@bot.slash_command(name="aliases", description="Show all available aliases for towers and heroes")
+async def aliases_command(ctx: discord.ApplicationContext):
+    # Grupowanie aliasów według podstawowych nazw
+    alias_groups = {}
+    for alias, value in aliases.items():
+        if value not in alias_groups:
+            alias_groups[value] = []
+        alias_groups[value].append(alias)
+
+    # Tworzenie listy aliasów w formacie "value -> alias1, alias2, ..."
+    alias_list = []
+    for value, aliases_group in alias_groups.items():
+        alias_list.append(f"**{value}** → {', '.join(aliases_group)}")
+
+    # Podziel listę na części, aby uniknąć przekroczenia limitu znaków w embedzie
+    chunk_size = 50  # Liczba grup aliasów na jedną wiadomość
+    alias_chunks = [alias_list[i:i + chunk_size] for i in range(0, len(alias_list), chunk_size)]
+
+    # Wysłanie aliasów w kilku wiadomościach (jeśli jest ich dużo)
+    for chunk in alias_chunks:
+        embed = discord.Embed(
+            title="Aliases",
+            description="\n".join(chunk),
+            color=discord.Color.blue()
+        )
+        await ctx.respond(embed=embed)
 
 
 
@@ -1810,6 +1908,8 @@ async def on_ready():
     print(f'Bot {bot.user} is ready!')
     print(f'Commands: {[cmd.name for cmd in bot.application_commands]}')
 
+    # Inicjalizacja słownika zgłoszeń
+    bot.active_submissions = {}
 
 
 
