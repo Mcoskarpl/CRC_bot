@@ -13,8 +13,8 @@ import json
 load_dotenv("Token.env")
 TOKEN = os.getenv('DISCORD_TOKEN')
 YOUR_USER_ID = 311552371970932736
-YOUR_CHANNEL_ID = 1351202255499563049  # Zastąp prawdziwym ID kanału
-IMGUR_CLIENT_ID = "9f769a6c43f8956"
+YOUR_CHANNEL_ID = 1347931852157227089  # Zastąp prawdziwym ID kanału
+IMGUR_CLIENT_ID = os.getenv('IMGUR_CLIENT_ID')
 IMGUR_UPLOAD_URL = "https://api.imgur.com/3/upload"
 SUBMISSIONS_FILE = "submissions.json"
 
@@ -1121,89 +1121,11 @@ async def todo(ctx: discord.ApplicationContext):
     todo_list = """
     **Stuff to do with bot:**
     - somehow copy .xlsx file into spreadsheet
-    - host it
-    - add /imgur command
-    - write which thing bot couldn't understand in used_towers, (not give 0 for these towers)
-    - /alias command?
+    - add geraldo items
     """
 
     # Wysłanie wiadomości z listą
     await ctx.respond(todo_list)
-
-def parse_tower(tower):
-    """
-    Przetwarza wieżę w formacie np. dart#000.
-    Zwraca listę podstawowych wież, łączną cenę oraz komunikat o błędzie (jeśli wystąpił).
-    Jeśli wieża nie istnieje w słowniku, zwraca None, 0 i komunikat o błędzie.
-    """
-    # Normalizacja nazwy wieży
-    tower = normalize_tower_name(tower)
-
-    # Sprawdź, czy wieża ma poprawny format (3 cyfry po #)
-    if not "#" in tower or len(tower.split("#")[1]) != 3:
-        return None, 0, f"Invalid tower format: {tower}. Each tower must have 3 digits after '#'."  # Nieprawidłowy format wieży
-
-    base_name = tower.split("#")[0]  # Nazwa wieży (np. "dart")
-    digits = tower.split("#")[1]     # Cyfry (np. "000")
-
-    # Sprawdź, czy przynajmniej jedna cyfra to 0
-    if "0" not in digits:
-        return None, 0, f"Invalid tower format: {tower}. Each tower must have at least one '0'."
-
-    # Sprawdź, czy nie ma dwóch cyfr 3 lub wyższych
-    if sum(1 for d in digits if int(d) >= 3) > 1:
-        return None, 0, f"Invalid tower format: {tower}. No more than one digit >= 3 is allowed."
-
-    # Sprawdź, czy wieża istnieje w słowniku
-    if tower not in towers:
-        return None, 0, f"Tower not found in dictionary: {tower}."
-
-    # Przeliczanie wieży
-    basic_towers = []
-    total_price = 0
-
-    # Dodaj bazową wieżę (dart#000)
-    basic_tower = f"{base_name}#000"
-    tower_price = towers.get(basic_tower, 0)
-
-    # Zaokrąglij cenę pojedynczej wieży do najbliższej 5
-    rounded_price = round(tower_price * 1.08 / 5) * 5
-
-    # Dodaj cenę bazowej wieży
-    total_price += rounded_price
-
-    # Dodaj wieżę do listy podstawowych wieży
-    basic_towers.append(basic_tower)
-
-    for i, digit in enumerate(digits):
-        if digit == "0":
-            continue  # Pomijamy cyfrę 0
-        for j in range(1, int(digit) + 1):
-            # Poprawne formatowanie indeksów
-            if i == 0:  # Pierwsza cyfra (dziesiątki)
-                basic_tower = f"{base_name}#{j:01d}00"
-            elif i == 1:  # Druga cyfra (jedności)
-                basic_tower = f"{base_name}#0{j:01d}0"
-            elif i == 2:  # Trzecia cyfra (setki)
-                basic_tower = f"{base_name}#00{j:01d}"
-
-            # Sprawdź, czy wieża istnieje w słowniku
-            if basic_tower not in towers:
-                return None, 0, f"Tower not found in dictionary: {basic_tower}."
-
-            # Pobierz cenę podstawowej wieży
-            tower_price = towers.get(basic_tower, 0)
-
-            # Zaokrąglij cenę pojedynczej wieży do najbliższej 5
-            rounded_price = round(tower_price * 1.08 / 5) * 5
-
-            # Dodaj cenę podstawowej wieży
-            total_price += rounded_price
-
-            # Dodaj wieżę do listy podstawowych wieży
-            basic_towers.append(basic_tower)
-
-    return basic_towers, total_price, None  # Zwróć listę wież, łączną cenę i brak błędu
 
 
 def parse_hero(hero):
@@ -1230,97 +1152,6 @@ def parse_hero(hero):
         return None, hero_cost  # Zwróć koszt herosa
     except (ValueError, KeyError) as e:
         return None, 0
-
-def parse_tower_only(tower):
-    """
-    Przetwarza wieżę w formacie np. dart#000*3.
-    Zwraca listę podstawowych wież, ich łączną cenę oraz komunikat o błędzie (jeśli wystąpił).
-    """
-    # Sprawdź, czy wieża zawiera mnożenie
-    if "*" in tower:
-        # Podziel na części: tower_name, digits, multiplier
-        if tower.count("*") != 1:
-            return None, 0, "Invalid tower format: '*' can only appear once."
-
-        # Podziel na część przed * i po *
-        parts = tower.split("*")
-        if parts[1].isdigit():
-            multiplier = int(parts[1])  # Mnożnik jest po *
-            tower_part = parts[0]  # Część z wieżą (np. dart#000)
-        else:
-            return None, 0, "Invalid multiplier: must be a number."
-    else:
-        tower_part = tower
-        multiplier = 1
-
-    # Normalizacja nazwy wieży
-    tower_part = normalize_tower_name(tower_part)
-
-    # Sprawdź, czy wieża ma poprawny format (3 cyfry po #)
-    if not "#" in tower_part or len(tower_part.split("#")[1]) != 3:
-        return None, 0, "Invalid tower format: each tower must have 3 digits after '#'."
-
-    base_name = tower_part.split("#")[0]  # Nazwa wieży (np. "dart")
-    digits = tower_part.split("#")[1]     # Cyfry (np. "000")
-
-    # Sprawdź, czy przynajmniej jedna cyfra to 0
-    if "0" not in digits:
-        return None, 0, "Invalid tower format: each tower must have at least one '0'."
-
-    # Sprawdź, czy nie ma dwóch cyfr 3 lub wyższych
-    if sum(1 for d in digits if int(d) >= 3) > 1:
-        return None, 0, "Invalid tower format: no more than one digit >= 3 is allowed."
-
-    # Sprawdź, czy wieża istnieje w słowniku
-    if tower_part not in towers:
-        return None, 0, f"Tower not found in dictionary: {tower_part}."
-
-    # Przeliczanie wieży
-    basic_towers = []
-    total_price = 0
-
-    # Dodaj bazową wieżę (dart#000)
-    basic_tower = f"{base_name}#000"
-    tower_price = towers.get(basic_tower, 0)
-
-    # Modyfikacja ceny: mnożenie przez 1.08, floor, zaokrąglenie do 5
-    modified_price = round(math.floor(tower_price * 1.08) / 5) * 5
-
-    # Pomnóż zaokrągloną cenę przez mnożnik
-    total_price += modified_price * multiplier
-
-    # Dodaj wieżę do listy podstawowych wieży
-    basic_towers.extend([basic_tower] * multiplier)
-
-    for i, digit in enumerate(digits):
-        if digit == "0":
-            continue  # Pomijamy cyfrę 0
-        for j in range(1, int(digit) + 1):
-            # Poprawne formatowanie indeksów
-            if i == 0:  # Pierwsza cyfra (dziesiątki)
-                basic_tower = f"{base_name}#{j:01d}00"
-            elif i == 1:  # Druga cyfra (jedności)
-                basic_tower = f"{base_name}#0{j:01d}0"
-            elif i == 2:  # Trzecia cyfra (setki)
-                basic_tower = f"{base_name}#00{j:01d}"
-
-            # Sprawdź, czy wieża istnieje w słowniku
-            if basic_tower not in towers:
-                return None, 0, f"Tower not found in dictionary: {basic_tower}."
-
-            # Pobierz cenę podstawowej wieży
-            tower_price = towers.get(basic_tower, 0)
-
-            # Modyfikacja ceny: mnożenie przez 1.08, floor, zaokrąglenie do 5
-            modified_price = round(math.floor(tower_price * 1.08) / 5) * 5
-
-            # Pomnóż zaokrągloną cenę przez mnożnik
-            total_price += modified_price * multiplier
-
-            # Dodaj wieżę do listy podstawowych wieży
-            basic_towers.extend([basic_tower] * multiplier)
-
-    return basic_towers, total_price, None  # Brak błędu
 
 @bot.slash_command(name="crc", description="Display CRC which you want")
 async def CRC(
@@ -1463,20 +1294,98 @@ async def CRC(
         await ctx.respond(embed=embed)
 
 # Modyfikacja funkcji parse_tower
-def parse_tower(tower):
-    """
-    Przelicza wieżę złożoną na podstawowe wieże lub herosy.
-    Obsługuje dwa przypadki:
-    1. Wieże (np. dart#000*3)
-    2. Herosy (np. Quincy-5)
-    Zwraca listę podstawowych wież/herosów oraz ich łączną cenę.
-    """
-    # Sprawdź, czy to heros
-    if "-" in tower:
-        return parse_hero(tower)  # Przetwarzaj herosa
+def calculate_single_tower_cost(tower_key):
+    """Oblicza koszt pojedynczej wieży z uwzględnieniem modyfikatorów"""
+    base_cost = towers.get(tower_key, 0)
+    if base_cost == 0:
+        return 0
+    
+    # 1. Pomnóż przez 1.08
+    multiplied = base_cost * 1.08
+    # 2. Zastosuj floor (usuń część ułamkową)
+    floored = math.floor(multiplied)
+    # 3. Zaokrąglij do najbliższej wielokrotności 5
+    rounded = round(floored / 5) * 5
+    
+    return rounded
 
-    # W przeciwnym razie przetwarzaj wieżę
-    return parse_tower_only(tower)  # Przetwarzaj wieżę
+def parse_tower(tower):
+    """Rozbija wieżę na wszystkie pośrednie ulepszenia z pełnym przeliczaniem kosztów"""
+    try:
+        # Normalizacja nazwy
+        normalized = normalize_tower_name(tower)
+        if not normalized:
+            return None, 0, f"Nieznana wieża: {tower}"
+
+        base_name, digits = normalized.split("#")
+        if len(digits) != 3:
+            return None, 0, "Format musi być nazwa#XYZ (3 cyfry)"
+
+        # Generuj wszystkie wymagane ulepszenia
+        components = ["000"]  # Zawsze zaczynamy od podstawowej wersji
+        
+        for i, digit in enumerate(map(int, digits)):
+            if digit < 0 or digit > 5:
+                return None, 0, f"Nieprawidłowa cyfra {digit} w pozycji {i}"
+                
+            position = 2 - i  # 0:setki, 1:dziesiatki, 2:jednosci
+            for lvl in range(1, digit + 1):
+                value = lvl * (10 ** position)
+                components.append(f"{value:03d}")
+
+        # Przelicz każdy komponent
+        basic_towers = []
+        total_price = 0
+        
+        for comp in components:
+            tower_key = f"{base_name}#{comp}"
+            if tower_key not in towers:
+                return None, 0, f"Brak w słowniku: {tower_key}"
+                
+            component_cost = calculate_single_tower_cost(tower_key)
+            basic_towers.append((tower_key, component_cost))
+            total_price += component_cost
+
+        return basic_towers, total_price, None
+
+    except Exception as e:
+        return None, 0, f"Błąd przetwarzania: {str(e)}"
+
+
+def parse_tower_only(tower):
+    """Wersja z obsługą mnożników"""
+    try:
+        # Rozdziel mnożnik
+        multiplier = 1
+        if "*" in tower:
+            parts = tower.split("*")
+            if len(parts) != 2:
+                return None, 0, "Zły format mnożnika"
+            tower_part, mult = parts
+            try:
+                multiplier = int(mult)
+                if multiplier < 1:
+                    return None, 0, "Mnożnik musi być ≥1"
+            except ValueError:
+                return None, 0, "Mnożnik musi być liczbą"
+        else:
+            tower_part = tower
+
+        # Parsuj podstawową wieżę
+        components, price, error = parse_tower(tower_part)
+        if error:
+            return None, 0, error
+
+        # Zastosuj mnożnik do wyniku
+        multiplied_components = []
+        for (tower_key, cost) in components:
+            multiplied_components.extend([(tower_key, cost)] * multiplier)
+        
+        return multiplied_components, price * multiplier, None
+
+    except Exception as e:
+        return None, 0, f"Błąd przetwarzania: {str(e)}"
+
 
 
 def parse_hero(hero):
@@ -1597,100 +1506,136 @@ async def Submit(
     person: discord.Option(str, description="Person which did it"),
     version: discord.Option(str, description="Version", required=False)
 ):
-    # ID specyficznego serwera
-    SPECIFIC_SERVER_ID = 678672922910654487
+    try:
+        # ID specyficznego serwera
+        SPECIFIC_SERVER_ID = 1310038138219135047
 
-    # Sprawdź, czy komenda jest używana na odpowiednim serwerze
-    if ctx.guild.id != SPECIFIC_SERVER_ID:
-        await ctx.respond("This command is only available on a specific server. To join to server type /invite", ephemeral=True)
-        return
+        # Sprawdź, czy komenda jest używana na odpowiednim serwerze
+        if ctx.guild.id != SPECIFIC_SERVER_ID:
+            embed = discord.Embed(
+                title="Error",
+                description="This command is only available on a specific server. To join to server type /invite",
+                color=discord.Color.red()
+            )
+            await ctx.respond(embed=embed, ephemeral=True)
+            return
 
-    # Reszta logiki komendy
-    if "*" in used_towers:
-        embed = discord.Embed(
-            title="Error",
-            description="The '*' symbol is not allowed in 'used_towers'. Please use only '+' to separate towers.",
+        # Reszta logiki komendy
+        if "*" in used_towers:
+            embed = discord.Embed(
+                title="Error",
+                description="The '*' symbol is not allowed in 'used_towers'. Please use only '+' to separate towers.",
+                color=discord.Color.red()
+            )
+            await ctx.respond(embed=embed, ephemeral=True)
+            return
+
+        normalized_map = normalize_map_name(map)
+        if not normalized_map:
+            embed = discord.Embed(
+                title="Error",
+                description=f"Invalid map name. Please choose from: {', '.join(maps_with_aliases.keys())}",
+                color=discord.Color.red()
+            )
+            await ctx.respond(embed=embed, ephemeral=True)
+            return
+
+        global global_version
+        submission_version = version if version else global_version
+
+        # Sprawdź wersję tylko jeśli jest podana
+        if version and version != global_version:
+            await send_submission_to_channel(ctx.channel, round, normalized_map, price, used_towers, link, person, submission_version)
+            
+            confirm_embed = discord.Embed(
+                title="Submission Sent (Different Version)",
+                description=f"Your CRC submission has been sent for approval.\nNote: Version {version} differs from global version {global_version} - price validation skipped.",
+                color=discord.Color.orange()
+            )
+            await ctx.respond(embed=confirm_embed)
+            return
+
+        # Reszta normalnej logiki sprawdzania cen
+        if round < 1 or round > 140:
+            embed = discord.Embed(
+                title="Error",
+                description="Round must be between 1 and 140.",
+                color=discord.Color.red()
+            )
+            await ctx.respond(embed=embed, ephemeral=True)
+            return
+
+        tower_list = used_towers.split("+")
+        basic_towers = []
+        total_price = 0
+        unrecognized_towers = []
+
+        for tower in tower_list:
+            tower = tower.replace(" ", "").lower()
+            if "-" in tower:
+                try:
+                    hero_name, level = tower.split("-")
+                    level = int(level)
+                    hero_cost = calculate_hero_cost(hero_name, level)
+                    total_price += hero_cost
+                    basic_towers.append(f"{hero_name}-{level}")
+                except Exception as e:
+                    unrecognized_towers.append(f"{tower} (Invalid hero format: {str(e)})")
+            else:
+                parsed_towers, tower_price, error_message = parse_tower(tower)
+                if parsed_towers is None:
+                    unrecognized_towers.append(f"{tower} ({error_message})")
+                    continue
+                basic_towers.extend(parsed_towers)
+                total_price += tower_price
+
+        if unrecognized_towers:
+            embed = discord.Embed(
+                title="Error",
+                description=f"The following towers were not recognized:\n{', '.join(unrecognized_towers)}",
+                color=discord.Color.red()
+            )
+            await ctx.respond(embed=embed, ephemeral=True)
+            return
+
+        if total_price != price:
+            embed = discord.Embed(
+                title="Error",
+                description=f"Price does not match the value of used towers. Calculated price: {total_price}, provided price: {price}.",
+                color=discord.Color.red()
+            )
+            await ctx.respond(embed=embed, ephemeral=True)
+            return
+
+        wb, ws = load_excel()
+        today_price = get_today_price(ws, normalized_map, round)
+
+        if today_price is not None and price >= today_price:
+            embed = discord.Embed(
+                title="Submission Rejected",
+                description=f"Your submission for Round {round} on {normalized_map} is too expensive. Today's Price: {today_price}, your price: {price}.",
+                color=discord.Color.red()
+            )
+            await ctx.respond(embed=embed, ephemeral=True)
+            return
+
+        await send_submission_to_channel(ctx.channel, round, normalized_map, price, used_towers, link, person, submission_version)
+
+        confirm_embed = discord.Embed(
+            title="Submission Sent",
+            description="Your CRC submission has been sent for approval.",
+            color=discord.Color.green()
+        )
+        await ctx.respond(embed=confirm_embed)
+
+    except Exception as e:
+        error_embed = discord.Embed(
+            title="Unexpected Error",
+            description=f"An error occurred while processing your submission: {str(e)}",
             color=discord.Color.red()
         )
-        await ctx.respond(embed=embed)
-        return
-
-    normalized_map = normalize_map_name(map)
-    if not normalized_map:
-        await ctx.respond(f"Invalid map name. Please choose from: {', '.join(maps_with_aliases.keys())}", ephemeral=True)
-        return
-
-    global global_version
-    submission_version = version if version else global_version
-
-    if round < 1 or round > 140:
-        embed = discord.Embed(
-            title="Error",
-            description="Round must be between 1 and 140.",
-            color=discord.Color.red()
-        )
-        await ctx.respond(embed=embed)
-        return
-
-    tower_list = used_towers.split("+")
-    basic_towers = []
-    total_price = 0
-    unrecognized_towers = []
-
-    for tower in tower_list:
-        tower = tower.replace(" ", "").lower()
-        if "-" in tower:
-            hero_name, level = tower.split("-")
-            level = int(level)
-            hero_cost = calculate_hero_cost(hero_name, level)
-            total_price += hero_cost
-            basic_towers.append(f"{hero_name}-{level}")
-        else:
-            parsed_towers, tower_price, error_message = parse_tower(tower)  # Rozpakowanie trzech wartości
-            if parsed_towers is None:
-                unrecognized_towers.append(f"{tower} ({error_message})")
-                continue
-            basic_towers.extend(parsed_towers)
-            total_price += tower_price
-
-    if unrecognized_towers:
-        embed = discord.Embed(
-            title="Error",
-            description=f"The following towers were not recognized:\n{', '.join(unrecognized_towers)}",
-            color=discord.Color.red()
-        )
-        await ctx.respond(embed=embed)
-        return
-
-    if total_price != price:
-        embed = discord.Embed(
-            title="Error",
-            description=f"Price does not match the value of used towers. Calculated price: {total_price}, provided price: {price}.",
-            color=discord.Color.red()
-        )
-        await ctx.respond(embed=embed)
-        return
-
-    wb, ws = load_excel()
-    today_price = get_today_price(ws, normalized_map, round)
-
-    if today_price is not None and price >= today_price:
-        embed = discord.Embed(
-            title="Submission Rejected",
-            description=f"Your submission for Round {round} on {normalized_map} is too expensive. Today's Price: {today_price}, your price: {price}.",
-            color=discord.Color.red()
-        )
-        await ctx.respond(embed=embed)
-        return
-
-    await send_submission_to_channel(ctx.channel, round, normalized_map, price, used_towers, link, person, submission_version)
-
-    confirm_embed = discord.Embed(
-        title="Submission Sent",
-        description="Your CRC submission has been sent for approval.",
-        color=discord.Color.green()
-    )
-    await ctx.respond(embed=confirm_embed)
+        await ctx.respond(embed=error_embed, ephemeral=True)
+        print(f"Error in submit command: {traceback.format_exc()}")
     
 async def delete_submission_messages(submission):
     """
@@ -1907,12 +1852,6 @@ async def aliases_command(ctx: discord.ApplicationContext):
 async def on_ready():
     print(f'Bot {bot.user} is ready!')
     print(f'Commands: {[cmd.name for cmd in bot.application_commands]}')
-
-    # Inicjalizacja słownika zgłoszeń
-    bot.active_submissions = {}
-
-
-
 
 # Uruchomienie bota
 bot.run(TOKEN)
